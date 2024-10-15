@@ -1,0 +1,19 @@
+﻿- type: entity
+  parent: BaseItem
+  id: Boomerang
+  name: boomerang
+  description: It comes back!
+  components:
+  - type: Sprite
+    sprite: Objects/Weapons/Throwable/boomerang.rsi
+    state: boomerang
+  - type: LandAtCursor
+  - type: DamageOtherOnHit
+    damage:
+      types:
+        Slash: 8
+        Piercing: 10
+  - type: StaminaDamageOnCollide
+    damage: 45
+  - type: StaminaDamageOnEmbed
+    damage: 10
