@@ -1,0 +1,22 @@
+- type: constructionGraph
+  id: RevolutionaryHeadband
+  start: start
+  graph:
+    - node: start
+      edges:
+        - to: headband
+          steps:
+            - tag: Bandana
+              name: construction-graph-tag-bandana
+              icon:
+                sprite: Clothing/Head/Bandanas/red.rsi
+                state: icon
+              doAfter: 1
+            - tag: Knife
+              name: construction-graph-tag-knife
+              icon:
+                sprite: Objects/Weapons/Melee/kitchen_knife.rsi
+                state: icon
+              doAfter: 2
+    - node: headband
+      entity: ClothingHeadBandRevolutionary

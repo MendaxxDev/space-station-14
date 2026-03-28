@@ -1,18 +1,13 @@
-using Content.Shared.IdentityManagement;
+using Content.Shared.Antag;
 using Content.Shared.Mindshield.Components;
-using Content.Shared.Popups;
 using Content.Shared.Revolutionary.Components;
-using Content.Shared.Stunnable;
 using Robust.Shared.GameStates;
 using Robust.Shared.Player;
-using Content.Shared.Antag;
 
 namespace Content.Shared.Revolutionary;
 
 public abstract class SharedRevolutionarySystem : EntitySystem
 {
-    [Dependency] private readonly SharedPopupSystem _popupSystem = default!;
-    [Dependency] private readonly SharedStunSystem _sharedStun = default!;
 
     public override void Initialize()
     {
@@ -22,29 +17,30 @@ public abstract class SharedRevolutionarySystem : EntitySystem
         SubscribeLocalEvent<RevolutionaryComponent, ComponentGetStateAttemptEvent>(OnRevCompGetStateAttempt);
         SubscribeLocalEvent<HeadRevolutionaryComponent, ComponentGetStateAttemptEvent>(OnRevCompGetStateAttempt);
         SubscribeLocalEvent<RevolutionaryComponent, ComponentStartup>(DirtyRevComps);
-        SubscribeLocalEvent<HeadRevolutionaryComponent, ComponentStartup>(DirtyRevComps);
+        SubscribeLocalEvent<HeadRevolutionaryComponent, ComponentStartup>(OnHeadRevStartup);
         SubscribeLocalEvent<ShowAntagIconsComponent, ComponentStartup>(DirtyRevComps);
     }
 
     /// <summary>
-    /// When the mindshield is implanted in the rev it will popup saying they were deconverted. In Head Revs it will remove the mindshield component.
+    /// When the mindshield is implanted in a Head Rev, the component is immediately removed (Head Revs are immune).
+    /// Regular revolutionaries are no longer deconverted by mindshield implantation — instead the mindshield
+    /// suppresses their passive loyalty health regeneration (handled by LoyaltyHealthSystem on the server).
     /// </summary>
     private void MindShieldImplanted(EntityUid uid, MindShieldComponent comp, MapInitEvent init)
     {
         if (HasComp<HeadRevolutionaryComponent>(uid))
         {
             RemCompDeferred<MindShieldComponent>(uid);
-            return;
         }
+    }
 
-        if (HasComp<RevolutionaryComponent>(uid))
-        {
-            var stunTime = TimeSpan.FromSeconds(4);
-            var name = Identity.Entity(uid, EntityManager);
-            RemComp<RevolutionaryComponent>(uid);
-            _sharedStun.TryUpdateParalyzeDuration(uid, stunTime);
-            _popupSystem.PopupEntity(Loc.GetString("rev-break-control", ("name", name)), uid);
-        }
+    /// <summary>
+    /// Called when <see cref="HeadRevolutionaryComponent"/> starts up on an entity.
+    /// Override in server-side systems to apply server-only HeadRev initialization logic.
+    /// </summary>
+    protected virtual void OnHeadRevStartup(EntityUid uid, HeadRevolutionaryComponent comp, ComponentStartup args)
+    {
+        DirtyRevComps(uid, comp, args);
     }
 
     /// <summary>

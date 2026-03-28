@@ -1,3 +1,15 @@
-﻿- type: codewordFaction
+- type: codewordFaction
   id: Traitor
   generator: TraitorCodewordGenerator
+
+- type: codewordFaction
+  id: RevolutionaryLow
+  generator: RevolutionaryLowCodewordGenerator
+
+- type: codewordFaction
+  id: RevolutionaryMid
+  generator: RevolutionaryMidCodewordGenerator
+
+- type: codewordFaction
+  id: RevolutionaryHigh
+  generator: RevolutionaryHighCodewordGenerator

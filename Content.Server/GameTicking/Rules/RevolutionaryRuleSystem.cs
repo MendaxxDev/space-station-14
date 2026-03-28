@@ -10,6 +10,7 @@ using Content.Server.Roles;
 using Content.Server.RoundEnd;
 using Content.Server.Shuttles.Systems;
 using Content.Server.Station.Systems;
+using Content.Shared.Cuffs.Components;
 using Content.Shared.Database;
 using Content.Shared.Flash;
 using Content.Shared.GameTicking.Components;
@@ -24,12 +25,12 @@ using Content.Shared.NPC.Prototypes;
 using Content.Shared.NPC.Systems;
 using Content.Shared.Revolutionary.Components;
 using Content.Shared.Roles.Components;
+using Content.Server.Shuttles.Components;
 using Content.Shared.Stunnable;
 using Content.Shared.Zombies;
+using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
-using Content.Shared.Cuffs.Components;
-using Robust.Shared.Player;
 
 namespace Content.Server.GameTicking.Rules;
 
@@ -44,6 +45,7 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
     [Dependency] private readonly IAdminLogManager _adminLogManager = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly ISharedPlayerManager _player = default!;
+    [Dependency] private readonly LoyaltyHealthSystem _loyaltyHealth = default!;
     [Dependency] private readonly MindSystem _mind = default!;
     [Dependency] private readonly MobStateSystem _mobState = default!;
     [Dependency] private readonly NpcFactionSystem _npcFaction = default!;
@@ -57,6 +59,9 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
     public readonly ProtoId<NpcFactionPrototype> RevolutionaryNpcFaction = "Revolutionary";
     public readonly ProtoId<NpcFactionPrototype> RevPrototypeId = "Rev";
 
+    // 91 LHP: enough to push a full-health target to ~9 (Convertable), and fully drains a 100-LHP mindshield.
+    private const float FlashLoyaltyDamage = 91f;
+
     public override void Initialize()
     {
         base.Initialize();
@@ -67,12 +72,36 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
 
         SubscribeLocalEvent<RevolutionaryRoleComponent, GetBriefingEvent>(OnGetBriefing);
 
+        // Ensure late-joining humanoids also receive a LoyaltyHealthComponent during an active rev round.
+        SubscribeLocalEvent<HumanoidProfileComponent, ComponentStartup>(OnHumanoidStartup);
+    }
+
+    private void OnHumanoidStartup(EntityUid uid, HumanoidProfileComponent comp, ComponentStartup args)
+    {
+        // Only add LoyaltyHealthComponent if a Revolutionary game rule is currently active.
+        var rules = EntityQueryEnumerator<RevolutionaryRuleComponent, GameRuleComponent>();
+        while (rules.MoveNext(out var ruleUid, out _, out var gameRule))
+        {
+            if (!GameTicker.IsGameRuleActive(ruleUid, gameRule))
+                continue;
+
+            EnsureComp<LoyaltyHealthComponent>(uid);
+            return;
+        }
     }
 
     protected override void Started(EntityUid uid, RevolutionaryRuleComponent component, GameRuleComponent gameRule, GameRuleStartedEvent args)
     {
         base.Started(uid, component, gameRule, args);
         component.CommandCheck = _timing.CurTime + component.TimerWait;
+
+        // Give all existing humanoid crew a LoyaltyHealthComponent so they can be converted via LHP.
+        var humanoids = EntityQueryEnumerator<HumanoidProfileComponent, MobStateComponent>();
+        while (humanoids.MoveNext(out var crewUid, out _, out _))
+        {
+            EnsureComp<LoyaltyHealthComponent>(crewUid);
+        }
+
     }
 
     protected override void ActiveTick(EntityUid uid, RevolutionaryRuleComponent component, GameRuleComponent gameRule, float frameTime)
@@ -99,10 +128,10 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
 
         var revsLost = CheckRevsLose();
         var commandLost = CheckCommandLose();
-        // This is (revsLost, commandsLost) concatted together
-        // (moony wrote this comment idk what it means)
-        var index = (commandLost ? 1 : 0) | (revsLost ? 2 : 0);
-        args.AddLine(Loc.GetString(Outcomes[index]));
+
+        // Determine shuttle-based victory tier
+        var outcomeKey = DetermineVictoryOutcome(revsLost, commandLost);
+        args.AddLine(Loc.GetString(outcomeKey));
 
         var sessionData = _antag.GetAntagIdentifiers(uid);
         args.AddLine(Loc.GetString("rev-headrev-count", ("initialCount", sessionData.Count)));
@@ -115,10 +144,68 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
                 ("name", name),
                 ("username", data.UserName),
                 ("count", count)));
-
-            // TODO: someone suggested listing all alive? revs maybe implement at some point
         }
         args.AddLine("");
+    }
+
+    /// <summary>
+    /// Determines the victory outcome string key using shuttle-based criteria.
+    /// Checks who is aboard the emergency shuttle and what fraction of Command was converted.
+    /// Falls back to the old binary check if no shuttle data is available.
+    /// </summary>
+    private string DetermineVictoryOutcome(bool revsLost, bool commandLost)
+    {
+        // If all Head Revs are dead, revolution failed regardless of shuttle contents
+        if (revsLost && !commandLost)
+            return "rev-lost";
+
+        // Count Command staff: converted vs loyal, and who made it onto the shuttle
+        var totalCommand = 0;
+        var convertedCommand = 0;
+        var loyalCommandOnShuttle = 0;
+
+        var commandQuery = EntityQueryEnumerator<CommandStaffComponent, MobStateComponent>();
+        while (commandQuery.MoveNext(out var cmdUid, out _, out var mobState))
+        {
+            if (mobState.CurrentState == MobState.Dead || mobState.CurrentState == MobState.Invalid)
+                continue;
+
+            totalCommand++;
+
+            var isConverted = HasComp<RevolutionaryComponent>(cmdUid) || HasComp<HeadRevolutionaryComponent>(cmdUid);
+            if (isConverted)
+            {
+                convertedCommand++;
+                continue;
+            }
+
+            // Check if this loyal Command member is aboard the emergency shuttle unrestrained
+            var onShuttle = HasComp<EmergencyShuttleComponent>(Transform(cmdUid).GridUid);
+            var isRestrained = TryComp<CuffableComponent>(cmdUid, out var cuffs) && cuffs.CuffedHandCount > 0;
+
+            if (onShuttle && !isRestrained)
+                loyalCommandOnShuttle++;
+        }
+
+        // If shuttle data is not meaningful (e.g. shuttle wasn't used), fall back to basic outcome
+        if (totalCommand == 0)
+            return commandLost ? "rev-won" : "rev-lost";
+
+        var conversionFraction = (float) convertedCommand / totalCommand;
+        var majorityConverted = conversionFraction > 0.5f;
+
+        if (loyalCommandOnShuttle == 0)
+        {
+            return majorityConverted
+                ? "rev-major-victory"
+                : "rev-minor-victory";
+        }
+        else
+        {
+            return majorityConverted
+                ? "crew-minor-victory"
+                : "crew-major-victory";
+        }
     }
 
     private void OnGetBriefing(EntityUid uid, RevolutionaryRoleComponent comp, ref GetBriefingEvent args)
@@ -129,36 +216,27 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
     }
 
     /// <summary>
-    /// Called when a Head Rev uses a flash in melee to convert somebody else.
+    /// Called when a Head Rev uses a flash in melee.
+    /// Instead of instantly converting, applies a large amount of loyalty damage.
+    /// This will convert the target if they have no mindshield and enough damage is dealt.
     /// </summary>
     private void OnPostFlash(EntityUid uid, HeadRevolutionaryComponent comp, ref AfterFlashedEvent ev)
     {
         if (uid != ev.User || !ev.Melee)
             return;
 
-        var alwaysConvertible = HasComp<AlwaysRevolutionaryConvertibleComponent>(ev.Target);
-
-        if (!_mind.TryGetMind(ev.Target, out var mindId, out var mind) && !alwaysConvertible)
+        if (!ev.Target.IsValid())
             return;
 
-        if (HasComp<RevolutionaryComponent>(ev.Target) ||
-            HasComp<MindShieldComponent>(ev.Target) ||
-            !HasComp<HumanoidProfileComponent>(ev.Target) &&
-            !alwaysConvertible ||
-            !_mobState.IsAlive(ev.Target) ||
-            HasComp<ZombieComponent>(ev.Target))
-        {
-            return;
-        }
+        EnsureComp<LoyaltyHealthComponent>(ev.Target);
 
-        _npcFaction.AddFaction(ev.Target, RevolutionaryNpcFaction);
-        var revComp = EnsureComp<RevolutionaryComponent>(ev.Target);
+        var converted = _loyaltyHealth.ApplyLoyaltyDamage(ev.Target, FlashLoyaltyDamage, canConvert: true);
 
-        if (ev.User != null)
+        if (converted && ev.User != null)
         {
             _adminLogManager.Add(LogType.Mind,
                 LogImpact.Medium,
-                $"{ToPrettyString(ev.User.Value)} converted {ToPrettyString(ev.Target)} into a Revolutionary");
+                $"{ToPrettyString(ev.User.Value)} converted {ToPrettyString(ev.Target)} into a Revolutionary via flash.");
 
             if (_mind.TryGetMind(ev.User.Value, out var revMindId, out _))
             {
@@ -169,14 +247,6 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
                 }
             }
         }
-
-        if (mindId == default || !_role.MindHasRole<RevolutionaryRoleComponent>(mindId))
-        {
-            _role.MindAddRole(mindId, "MindRoleRevolutionary");
-        }
-
-        if (mind is { UserId: not null } && _player.TryGetSessionById(mind.UserId, out var session))
-            _antag.SendBriefing(session, Loc.GetString("rev-role-greeting"), Color.Red, revComp.RevStartSound);
     }
 
     //TODO: Enemies of the revolution
@@ -306,15 +376,4 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
         return gone == list.Count || list.Count == 0;
     }
 
-    private static readonly string[] Outcomes =
-    {
-        // revs survived and heads survived... how
-        "rev-reverse-stalemate",
-        // revs won and heads died
-        "rev-won",
-        // revs lost and heads survived
-        "rev-lost",
-        // revs lost and heads died
-        "rev-stalemate"
-    };
 }

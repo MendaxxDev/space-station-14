@@ -33,6 +33,7 @@
   - !type:AddComponentSpecial
     components:
       - type: CommandStaff
+      - type: RevolutionaryImmune
 
 - type: startingGear
   id: CaptainGear

@@ -1,4 +1,12 @@
 - type: construction
+  id: RevolutionaryHeadband
+  graph: RevolutionaryHeadband
+  startNode: start
+  targetNode: headband
+  category: construction-category-clothing
+  objectType: Item
+
+- type: construction
   id: ClownHardsuit
   graph: ClownHardsuit
   startNode: start

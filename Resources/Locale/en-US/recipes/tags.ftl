@@ -154,6 +154,8 @@ construction-graph-tag-spationaut-hardsuit = spationaut hardsuit
 
 # clothing
 construction-graph-tag-backpack = backpack
+construction-graph-tag-bandana = a bandana
+construction-graph-tag-knife = a knife
 
 # chemistry
 construction-graph-tag-centrifuge-compatible = centrifugable container

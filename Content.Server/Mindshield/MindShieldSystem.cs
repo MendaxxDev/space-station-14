@@ -1,13 +1,8 @@
-using Content.Server.Administration.Logs;
-using Content.Server.Mind;
 using Content.Server.Popups;
-using Content.Server.Roles;
-using Content.Shared.Database;
+using Content.Server.Revolutionary;
 using Content.Shared.Implants;
 using Content.Shared.Mindshield.Components;
 using Content.Shared.Revolutionary.Components;
-using Content.Shared.Roles.Components;
-using Robust.Shared.Containers;
 
 namespace Content.Server.Mindshield;
 
@@ -17,10 +12,8 @@ namespace Content.Server.Mindshield;
 /// </summary>
 public sealed class MindShieldSystem : EntitySystem
 {
-    [Dependency] private readonly IAdminLogManager _adminLogManager = default!;
-    [Dependency] private readonly RoleSystem _roleSystem = default!;
-    [Dependency] private readonly MindSystem _mindSystem = default!;
     [Dependency] private readonly PopupSystem _popupSystem = default!;
+    [Dependency] private readonly RevolutionarySystem _revolutionary = default!;
 
     public override void Initialize()
     {
@@ -33,11 +26,15 @@ public sealed class MindShieldSystem : EntitySystem
     private void OnImplantImplanted(Entity<MindShieldImplantComponent> ent, ref ImplantImplantedEvent ev)
     {
         EnsureComp<MindShieldComponent>(ev.Implanted);
+        // A freshly implanted mindshield always starts at full shield health, per spec.
+        _revolutionary.ResetShield(ev.Implanted);
         MindShieldRemovalCheck(ev.Implanted, ev.Implant);
     }
 
     /// <summary>
-    /// Checks if the implanted person was a Rev or Head Rev and remove role or destroy mindshield respectively.
+    /// Checks if the implanted person is a Head Rev. Head Revs are immune to mindshield implants — the implant is destroyed.
+    /// Regular revolutionaries are NOT deconverted by mindshield implantation; the mindshield instead
+    /// suppresses passive shield recharge while they remain converted.
     /// </summary>
     private void MindShieldRemovalCheck(EntityUid implanted, EntityUid implant)
     {
@@ -45,13 +42,6 @@ public sealed class MindShieldSystem : EntitySystem
         {
             _popupSystem.PopupEntity(Loc.GetString("head-rev-break-mindshield"), implanted);
             QueueDel(implant);
-            return;
-        }
-
-        if (_mindSystem.TryGetMind(implanted, out var mindId, out _) &&
-            _roleSystem.MindRemoveRole<RevolutionaryRoleComponent>(mindId))
-        {
-            _adminLogManager.Add(LogType.Mind, LogImpact.Medium, $"{ToPrettyString(implanted)} was deconverted due to being implanted with a Mindshield.");
         }
     }
 
@@ -60,4 +50,3 @@ public sealed class MindShieldSystem : EntitySystem
         RemComp<MindShieldComponent>(args.Implanted);
     }
 }
-

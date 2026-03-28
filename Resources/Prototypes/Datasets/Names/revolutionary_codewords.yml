@@ -1,0 +1,20 @@
+# Low-tier codewords: common, easy to use in normal speech
+- type: localizedDataset
+  id: RevolutionaryLowWords
+  values:
+    prefix: rev-codeword-low-dataset-
+    count: 50
+
+# Mid-tier codewords: noticeably seditious but can be disguised with care
+- type: localizedDataset
+  id: RevolutionaryMidWords
+  values:
+    prefix: rev-codeword-mid-dataset-
+    count: 30
+
+# High-tier codewords: openly revolutionary, high damage, can convert Convertable targets
+- type: localizedDataset
+  id: RevolutionaryHighWords
+  values:
+    prefix: rev-codeword-high-dataset-
+    count: 20

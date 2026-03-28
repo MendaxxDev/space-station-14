@@ -70,6 +70,7 @@
           False: {state: stunbaton_off}
   - type: StaticPrice
     price: 80
+  - type: RevDeconversionWeapon
   - type: Riggable
   - type: SolutionContainerManager
     solutions:
@@ -184,6 +185,21 @@
   components:
     - type: LimitedCharges
       maxCharges: 2
+
+- type: entity
+  name: electro pack
+  parent: ClothingBackpack
+  id: ClothingBackpackElectroPack
+  description: A backpack-sized electroshock suppression unit. Worn by cooperative individuals undergoing loyalty recalibration. Definitely just a regular backpack.
+  components:
+  - type: Sprite
+    sprite: Clothing/Back/Backpacks/backpack.rsi
+    state: icon
+  - type: RevDeconversionEquipment
+    healRate: 0.5
+  - type: GuideHelp
+    guides:
+    - Security
 
 - type: entity
   name: portable flasher

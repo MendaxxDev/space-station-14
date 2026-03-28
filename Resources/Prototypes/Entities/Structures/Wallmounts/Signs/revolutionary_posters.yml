@@ -1,0 +1,30 @@
+- type: entity
+  parent: PosterBase
+  id: PosterRevolutionary
+  name: revolutionary poster
+  description: "A poster bearing revolutionary slogans and imagery. The sight of it stirs something unsettling within you."
+  components:
+  - type: Sprite
+    state: poster38_contraband
+  - type: RevolutionaryPropaganda
+    drainRate: 0.25
+    range: 4.0
+    tickInterval: 1.0
+    requiresLoS: true
+    destructionBurst: 5.0
+
+- type: entity
+  parent: PosterBase
+  id: PosterLoyal
+  name: loyalty poster
+  description: "A poster bearing NanoTrasen imagery and uplifting slogans. Seeing it reinforces your commitment to the company."
+  components:
+  - type: Sprite
+    state: poster1_legit
+  - type: RevolutionaryPropaganda
+    drainRate: 0.25
+    range: 4.0
+    tickInterval: 1.0
+    isLoyal: true
+    requiresLoS: true
+    destructionBurst: 10.0

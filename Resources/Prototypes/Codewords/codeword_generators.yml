@@ -1,6 +1,27 @@
-﻿- type: codewordGenerator
+- type: codewordGenerator
   id: TraitorCodewordGenerator
   words:
   - Adjectives
   - Verbs
   amount: 4
+
+# Low-tier revolutionary codewords: easy to weave into normal speech, hard to metagame
+- type: codewordGenerator
+  id: RevolutionaryLowCodewordGenerator
+  words:
+  - RevolutionaryLowWords
+  amount: 5
+
+# Mid-tier revolutionary codewords: noticeable if paying attention, moderate conversion potential
+- type: codewordGenerator
+  id: RevolutionaryMidCodewordGenerator
+  words:
+  - RevolutionaryMidWords
+  amount: 5
+
+# High-tier revolutionary codewords: obviously revolutionary, can trigger conversion
+- type: codewordGenerator
+  id: RevolutionaryHighCodewordGenerator
+  words:
+  - RevolutionaryHighWords
+  amount: 5

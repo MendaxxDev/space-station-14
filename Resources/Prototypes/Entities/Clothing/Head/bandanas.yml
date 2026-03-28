@@ -80,3 +80,11 @@
   parent: [ClothingHeadBandBase, ClothingMaskBandBrown]
   id: ClothingHeadBandBrown
   name: brown bandana
+
+- type: entity
+  parent: [ClothingHeadBandBase, ClothingMaskBandRed]
+  id: ClothingHeadBandRevolutionary
+  name: revolutionary headband
+  description: A red bandana tied tightly around the head. The markings on it seem to stir something in your soul — and yours alone.
+  components:
+  - type: RevolutionaryHeadband

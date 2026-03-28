@@ -4,13 +4,22 @@ roles-antag-rev-head-name = Head Revolutionary
 roles-antag-rev-head-objective = Your objective is to take over the station by converting people to your cause and eliminating all members of Command.
 
 head-rev-role-greeting =
-    You are a head revolutionary. You are tasked with removing all of Command from power through death, restraint, or conversion.
-    The Syndicate has sponsored you with a flash that converts others to your cause. Beware, this won't work on those with eye protection or mindshield implants. Remember that Command and Security are implanted with mindshields as part of the hiring process.
+    You are a head revolutionary. Your goal is to convert crew and ensure no loyal Command make it onto the evacuation shuttle.
+    Crew members have Loyalty Health Points (LHP) ranging from 0 to 100. When their LHP drops below 10, they enter a Convertable state.
+    You have three tiers of codewords. Speak them in conversation to drain nearby crew LHP (damage is split among all who hear you):
+      Low words (10 LHP) — easy to use in normal speech without arousing suspicion.
+      Mid words (20 LHP) — more suspicious, but effective.
+      High words (30 LHP) — clearly revolutionary, and will CONVERT anyone already in the Convertable state.
+    There is a 10-second cooldown between uses. Radio speech deals only 20% damage.
+    A flash can be used to deplete a target's LHP rapidly — one hit on a Convertable target converts them.
+    Mindshields absorb 100 LHP before your damage reaches the wearer — drain the shield first, then convert.
     Viva la revolución!
 
 head-rev-briefing =
-    Use flashes to convert people to your cause.
-    Kill, restrain, or convert all members of Command to take over the station.
+    Speak your codewords in conversation to drain the loyalty of nearby crew.
+    When crew LHP drops below 10, they are Convertable — use a high codeword or flash to complete the conversion.
+    Mindshields absorb damage before the wearer takes LHP damage; drain the shield first.
+    Ensure no loyal Command are alive or unrestrained on the evacuation shuttle.
 
 head-rev-break-mindshield = The mindshield implant was destroyed!
 
@@ -41,9 +50,15 @@ rev-won = The head revolutionaries survived and successfully seized control of t
 
 rev-lost = All head revolutionaries have died, and Command survived.
 
-rev-stalemate = Both Command and the head revolutionaries have all died. It's a draw.
+## Shuttle-based victory outcomes
 
-rev-reverse-stalemate = Both Command and the head revolutionaries survived.
+rev-major-victory = The revolution has triumphed! No loyal Command escaped on the evacuation shuttle, and more than half of Command was converted to the cause. Viva la revolución!
+
+rev-minor-victory = The revolution succeeded in preventing Command's escape, but failed to convert the majority of them. A bittersweet victory for the revolutionaries.
+
+crew-minor-victory = Command managed to evacuate, but the revolution was widespread — over half of Command had been converted. A narrow escape for NanoTrasen.
+
+crew-major-victory = Command held the line! Loyal officers successfully evacuated, and the majority of Command remained unconverted. The revolution has been crushed.
 
 rev-headrev-count = {$initialCount ->
     [one] There was one head revolutionary:
