@@ -1,4 +1,24 @@
 - type: entity
+  id: TritiumRadiationPulse
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: RadiationSource
+    intensity: 1.5
+    slope: 0.5
+  - type: TimedDespawn
+    lifetime: 5.5
+
+- type: entity
+  id: TritiumFireRadiationPulse
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: RadiationSource
+    intensity: 2.5
+    slope: 0.5
+  - type: TimedDespawn
+    lifetime: 2
+
+- type: entity
   name: shimmering anomaly
   id: RadiationPulse
   categories: [ HideSpawnMenu ]

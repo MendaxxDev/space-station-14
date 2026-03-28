@@ -103,6 +103,7 @@ public sealed partial class AtmosphereSystem : SharedAtmosphereSystem
 
         UpdateProcessing(frameTime);
         UpdateHighPressure(frameTime);
+        ProcessTritiumRadiation(frameTime);
 
         _exposedTimer += frameTime;
 

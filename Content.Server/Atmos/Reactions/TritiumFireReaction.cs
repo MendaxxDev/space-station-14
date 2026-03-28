@@ -42,7 +42,8 @@ namespace Content.Server.Atmos.Reactions
             {
                 energyReleased += (Atmospherics.FireHydrogenEnergyReleased * burnedFuel);
 
-                // TODO ATMOS Radiation pulse here!
+                if (location != null)
+                    atmosphereSystem.SpawnTritiumFireRadiationPulse(location);
 
                 // Conservation of mass is important.
                 mixture.AdjustMoles(Gas.WaterVapor, burnedFuel);
