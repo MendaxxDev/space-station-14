@@ -477,6 +477,17 @@
   description: The AI's viewer.
   categories: [ HideSpawnMenu, DoNotMap ]
   components:
+  - type: CameraIndicatorCollider
+  - type: Fixtures
+    fixtures:
+      indicatorTrigger:
+        shape:
+          !type:PhysShapeCircle
+          radius: 0.35
+        density: 80
+        hard: false
+        layer:
+        - GhostImpassable
   - type: NoFTL
   - type: Tag
     tags:

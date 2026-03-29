@@ -25,6 +25,7 @@
         layer:
         - TabletopMachineLayer
   - type: LightOnCollide
+  - type: CameraIndicatorOnCollide
   - type: PointLight
     enabled: false
     radius: 5

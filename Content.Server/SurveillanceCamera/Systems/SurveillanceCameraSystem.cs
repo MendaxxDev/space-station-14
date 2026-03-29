@@ -396,6 +396,11 @@ public sealed class SurveillanceCameraSystem : SharedSurveillanceCameraSystem
             key = SurveillanceCameraVisuals.InUse;
         }
 
+        if (TryComp<CameraIndicatorOnCollideComponent>(uid, out var indicator) && indicator.ActiveColliders > 0)
+        {
+            key = SurveillanceCameraVisuals.InUse;
+        }
+
         _appearance.SetData(uid, SurveillanceCameraVisualsKey.Key, key, appearance);
     }
 }
