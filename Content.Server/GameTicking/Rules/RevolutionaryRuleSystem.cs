@@ -1,5 +1,6 @@
 using Content.Server.Administration.Logs;
 using Content.Server.Antag;
+using Content.Server.Codewords;
 using Content.Server.EUI;
 using Content.Server.GameTicking.Rules.Components;
 using Content.Server.Mind;
@@ -40,6 +41,7 @@ namespace Content.Server.GameTicking.Rules;
 public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleComponent>
 {
     [Dependency] private readonly AntagSelectionSystem _antag = default!;
+    [Dependency] private readonly CodewordSystem _codewords = default!;
     [Dependency] private readonly EmergencyShuttleSystem _emergencyShuttle = default!;
     [Dependency] private readonly EuiManager _euiMan = default!;
     [Dependency] private readonly IAdminLogManager _adminLogManager = default!;
@@ -55,12 +57,8 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
     [Dependency] private readonly SharedStunSystem _stun = default!;
     [Dependency] private readonly StationSystem _stationSystem = default!;
 
-    //Used in OnPostFlash, no reference to the rule component is available
     public readonly ProtoId<NpcFactionPrototype> RevolutionaryNpcFaction = "Revolutionary";
     public readonly ProtoId<NpcFactionPrototype> RevPrototypeId = "Rev";
-
-    // 91 LHP: enough to push a full-health target to ~9 (Convertable), and fully drains a 100-LHP mindshield.
-    private const float FlashLoyaltyDamage = 91f;
 
     public override void Initialize()
     {
@@ -95,13 +93,17 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
         base.Started(uid, component, gameRule, args);
         component.CommandCheck = _timing.CurTime + component.TimerWait;
 
+        // Pre-generate codewords for all three tiers now so they are ready before any rev speaks.
+        _codewords.GetCodewords(component.LowCodewordFaction);
+        _codewords.GetCodewords(component.MidCodewordFaction);
+        _codewords.GetCodewords(component.HighCodewordFaction);
+
         // Give all existing humanoid crew a LoyaltyHealthComponent so they can be converted via LHP.
         var humanoids = EntityQueryEnumerator<HumanoidProfileComponent, MobStateComponent>();
         while (humanoids.MoveNext(out var crewUid, out _, out _))
         {
             EnsureComp<LoyaltyHealthComponent>(crewUid);
         }
-
     }
 
     protected override void ActiveTick(EntityUid uid, RevolutionaryRuleComponent component, GameRuleComponent gameRule, float frameTime)
@@ -228,9 +230,13 @@ public sealed class RevolutionaryRuleSystem : GameRuleSystem<RevolutionaryRuleCo
         if (!ev.Target.IsValid())
             return;
 
+        var ruleQuery = EntityQueryEnumerator<RevolutionaryRuleComponent>();
+        if (!ruleQuery.MoveNext(out _, out var ruleComp))
+            return;
+
         EnsureComp<LoyaltyHealthComponent>(ev.Target);
 
-        var converted = _loyaltyHealth.ApplyLoyaltyDamage(ev.Target, FlashLoyaltyDamage, canConvert: true);
+        var converted = _loyaltyHealth.ApplyLoyaltyDamage(ev.Target, ruleComp.FlashLoyaltyDamage, canConvert: true);
 
         if (converted && ev.User != null)
         {

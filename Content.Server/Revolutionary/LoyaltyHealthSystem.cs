@@ -3,18 +3,18 @@ using Content.Server.Antag;
 using Content.Server.Codewords;
 using Content.Server.Communications;
 using Content.Server.EUI;
+using Content.Server.GameTicking.Rules.Components;
 using Content.Server.Mind;
 using Content.Server.Popups;
 using Content.Server.Roles;
 using Content.Shared.Chat;
 using Content.Shared.Cuffs.Components;
-using Content.Shared.Damage;
+using Content.Shared.Damage.Systems;
 using Content.Shared.Database;
 using Content.Shared.Humanoid;
 using Content.Shared.IdentityManagement;
 using Content.Shared.Interaction;
 using Content.Shared.Inventory;
-using Content.Shared.Mind.Components;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Mobs.Systems;
@@ -54,59 +54,8 @@ public sealed class LoyaltyHealthSystem : EntitySystem
     [Dependency] private readonly SharedInteractionSystem _interact = default!;
     [Dependency] private readonly SharedStunSystem _stun = default!;
 
-    // --- Faction IDs ---
-
     /// <summary>The NPC faction id for all revolutionaries.</summary>
     public static readonly ProtoId<NpcFactionPrototype> RevolutionaryFaction = "Revolutionary";
-
-    // --- Codeword faction IDs (three tiers) ---
-    private static readonly ProtoId<CodewordFactionPrototype> LowCodewordFaction = "RevolutionaryLow";
-    private static readonly ProtoId<CodewordFactionPrototype> MidCodewordFaction = "RevolutionaryMid";
-    private static readonly ProtoId<CodewordFactionPrototype> HighCodewordFaction = "RevolutionaryHigh";
-
-    // --- Codeword damage values (per spec) ---
-    private const float LowCodewordDamage = 10f;
-    private const float MidCodewordDamage = 20f;
-    private const float HighCodewordDamage = 30f;
-
-    /// <summary>Radio codeword damage multiplier: only 20% effective when spoken over radio.</summary>
-    private const float RadioDamageMultiplier = 0.2f;
-
-    /// <summary>Range (in tiles) within which crew hear a codeword and take LHP damage.</summary>
-    private const float CodewordRange = 7f;
-
-    /// <summary>Per-speaker cooldown between codeword damage triggers.</summary>
-    private static readonly TimeSpan CodewordCooldown = TimeSpan.FromSeconds(10);
-
-    // --- Propaganda poster constants ---
-
-    /// <summary>Maximum number of overlapping propaganda posters that stack their effect on a single target per tick.</summary>
-    private const int MaxPosterStacks = 4;
-
-    /// <summary>
-    /// Flat codeword damage multiplier when the speaker has at least one revolutionary poster
-    /// within <see cref="CodewordRange"/> with line-of-sight.
-    /// </summary>
-    private const float PosterCodewordMultiplier = 1.25f;
-
-    /// <summary>Radius of the LHP burst applied when a propaganda poster is destroyed.</summary>
-    private const float PosterDestructionBurstRange = 5f;
-
-    // --- Death mechanics ---
-    private const float DeathBurstDamage = 15f;
-    private const float DeathBurstRange = 8f;
-    private const float DeathAuraRange = 4f;
-    private const float DeathAuraRate = 0.1f;
-    private static readonly TimeSpan DeathBurstCooldown = TimeSpan.FromSeconds(120);
-
-    // --- Per-speaker codeword cooldown tracking ---
-    private readonly Dictionary<EntityUid, TimeSpan> _lastCodewordTime = new();
-
-    // --- Tracks which Head Revs have already used the one-time announcement codeword ---
-    private readonly HashSet<EntityUid> _usedAnnouncementCodeword = new();
-
-    // How much LHP per second a cuffed revolutionary passively recovers.
-    private const float CuffedDeconversionRate = 0.5f;
 
     public override void Initialize()
     {
@@ -124,13 +73,16 @@ public sealed class LoyaltyHealthSystem : EntitySystem
     {
         base.Update(frameTime);
 
+        var ruleQuery = EntityQueryEnumerator<RevolutionaryRuleComponent>();
+        if (!ruleQuery.MoveNext(out _, out var rule))
+            return;
+
         var curTime = _timing.CurTime;
 
         // Passive LHP regeneration for non-revolutionary crew only
         var loyQuery = EntityQueryEnumerator<LoyaltyHealthComponent>();
         while (loyQuery.MoveNext(out var uid, out var lhp))
         {
-            // Revolutionaries do not passively recover LHP
             if (HasComp<RevolutionaryComponent>(uid) || HasComp<HeadRevolutionaryComponent>(uid))
                 continue;
 
@@ -144,7 +96,7 @@ public sealed class LoyaltyHealthSystem : EntitySystem
             lhp.LoyaltyHealth = MathF.Min(lhp.LoyaltyHealth + lhp.RegenRate * frameTime, lhp.MaxLoyaltyHealth);
         }
 
-        // Dead body aura — passive 0.1 LHP drain/heal per second within 4 tiles (requires LoS)
+        // Dead body aura — passive LHP drain/heal per second within range (requires LoS)
         var deadQuery = EntityQueryEnumerator<LoyaltyHealthComponent, MobStateComponent>();
         while (deadQuery.MoveNext(out var uid, out var auraLhp, out var mobState))
         {
@@ -152,15 +104,13 @@ public sealed class LoyaltyHealthSystem : EntitySystem
                 continue;
 
             // Direction is based on who killed this entity, not what faction they were.
-            // Rev killer → their victim's aura heals nearby crew (rev violence reinforces loyalty).
-            // Crew killer → their victim's aura damages nearby crew (witnessing death shakes loyalty).
             var killerIsRev = auraLhp.LastDamageSource.HasValue
                 && (HasComp<RevolutionaryComponent>(auraLhp.LastDamageSource.Value)
                     || HasComp<HeadRevolutionaryComponent>(auraLhp.LastDamageSource.Value));
-            var auraAmount = DeathAuraRate * frameTime;
+            var auraAmount = rule.DeathAuraRate * frameTime;
 
             var nearby = new HashSet<Entity<LoyaltyHealthComponent>>();
-            _lookup.GetEntitiesInRange(Transform(uid).Coordinates, DeathAuraRange, nearby);
+            _lookup.GetEntitiesInRange(Transform(uid).Coordinates, rule.DeathAuraRange, nearby);
 
             foreach (var (nearUid, nearLhp) in nearby)
             {
@@ -170,7 +120,7 @@ public sealed class LoyaltyHealthSystem : EntitySystem
                 if (HasComp<RevolutionaryComponent>(nearUid) || HasComp<HeadRevolutionaryComponent>(nearUid))
                     continue;
 
-                if (!_interact.InRangeUnobstructed(uid, nearUid, DeathAuraRange + 0.5f))
+                if (!_interact.InRangeUnobstructed(uid, nearUid, rule.DeathAuraRange + 0.5f))
                     continue;
 
                 if (killerIsRev)
@@ -193,7 +143,7 @@ public sealed class LoyaltyHealthSystem : EntitySystem
             if (!_mobState.IsAlive(uid))
                 continue;
 
-            lhp.LoyaltyHealth += CuffedDeconversionRate * frameTime;
+            lhp.LoyaltyHealth += rule.CuffedDeconversionRate * frameTime;
             if (lhp.LoyaltyHealth >= 0f)
                 TryDeconvert(uid, lhp);
         }
@@ -259,7 +209,7 @@ public sealed class LoyaltyHealthSystem : EntitySystem
 
                 // Enforce the per-target stacking cap
                 stackCounts.TryGetValue(targetUid, out var stacks);
-                if (stacks >= MaxPosterStacks)
+                if (stacks >= rule.MaxPosterStacks)
                     continue;
 
                 if (propaganda.RequiresLoS
@@ -509,9 +459,13 @@ public sealed class LoyaltyHealthSystem : EntitySystem
         if (!TerminatingOrDeleted(uid) || comp.DestructionBurst <= 0f)
             return;
 
+        var ruleQuery = EntityQueryEnumerator<RevolutionaryRuleComponent>();
+        if (!ruleQuery.MoveNext(out _, out var rule))
+            return;
+
         var coords = Transform(uid).Coordinates;
         var nearby = new HashSet<Entity<LoyaltyHealthComponent>>();
-        _lookup.GetEntitiesInRange(coords, PosterDestructionBurstRange, nearby);
+        _lookup.GetEntitiesInRange(coords, rule.PosterDestructionBurstRange, nearby);
 
         foreach (var (nearUid, nearLhp) in nearby)
         {
@@ -528,8 +482,6 @@ public sealed class LoyaltyHealthSystem : EntitySystem
         }
     }
 
-
-
     /// <summary>
     /// When a Head Rev uses an announcement console, their codewords deal station-wide non-split
     /// LHP damage. This can only trigger once per Head Rev per round.
@@ -542,12 +494,26 @@ public sealed class LoyaltyHealthSystem : EntitySystem
         if (!HasComp<HeadRevolutionaryComponent>(sender))
             return;
 
-        if (!_usedAnnouncementCodeword.Add(sender))
-            return; // already used their one-time announcement codeword
+        var ruleQuery = EntityQueryEnumerator<RevolutionaryRuleComponent>();
+        if (!ruleQuery.MoveNext(out _, out var rule))
+            return;
 
-        var (damage, _) = GetHighestCodewordTierInMessage(ev.Text);
+        // Only fires once per head rev
+        if (!_mind.TryGetMind(sender, out var mindId, out _))
+            return;
+
+        if (!_role.MindHasRole<RevolutionaryRoleComponent>(mindId, out var roleEntity))
+            return;
+
+        var roleComp = roleEntity.Value.Comp2;
+        if (roleComp.UsedAnnouncementCodeword)
+            return;
+
+        var (damage, _) = GetHighestCodewordTierInMessage(ev.Text, rule);
         if (damage <= 0f)
             return;
+
+        roleComp.UsedAnnouncementCodeword = true;
 
         // Non-split, station-wide loyalty damage — affect all non-rev crew with LHP
         var allCrew = EntityQueryEnumerator<LoyaltyHealthComponent>();
@@ -570,24 +536,35 @@ public sealed class LoyaltyHealthSystem : EntitySystem
         if (!HasComp<RevolutionaryComponent>(source) && !HasComp<HeadRevolutionaryComponent>(source))
             return;
 
-        // Enforce per-speaker cooldown
+        var ruleQuery = EntityQueryEnumerator<RevolutionaryRuleComponent>();
+        if (!ruleQuery.MoveNext(out _, out var rule))
+            return;
+
+        // Enforce per-speaker cooldown via RevolutionaryRoleComponent
+        if (!_mind.TryGetMind(source, out var mindId, out _))
+            return;
+
+        if (!_role.MindHasRole<RevolutionaryRoleComponent>(mindId, out var roleEntity))
+            return;
+
+        var roleComp = roleEntity.Value.Comp2;
         var curTime = _timing.CurTime;
-        if (_lastCodewordTime.TryGetValue(source, out var lastTime) && curTime - lastTime < CodewordCooldown)
+        if (curTime - roleComp.LastCodewordTime < rule.CodewordCooldown)
             return;
 
         var message = ev.Message;
 
         // Determine the highest-tier codeword found in the message
-        var (damage, canConvert) = GetHighestCodewordTierInMessage(message);
+        var (damage, canConvert) = GetHighestCodewordTierInMessage(message, rule);
         if (damage <= 0f)
             return;
 
-        _lastCodewordTime[source] = curTime;
+        roleComp.LastCodewordTime = curTime;
 
         // Apply radio multiplier when spoken over a radio channel
         var isRadio = ev.Channel != null;
         if (isRadio)
-            damage *= RadioDamageMultiplier;
+            damage *= rule.RadioDamageMultiplier;
 
         // Headband multiplier: wearing the revolutionary headband boosts codeword damage
         if (_inventory.TryGetSlotEntity(source, "head", out var headItem)
@@ -597,12 +574,12 @@ public sealed class LoyaltyHealthSystem : EntitySystem
         }
 
         // Poster codeword multiplier: if at least one revolutionary poster is nearby with LoS, boost damage
-        if (HasNearbyRevPoster(source))
-            damage *= PosterCodewordMultiplier;
+        if (HasNearbyRevPoster(source, rule.CodewordRange))
+            damage *= rule.PosterCodewordMultiplier;
 
         // Collect nearby crew who can hear this codeword
         var hearers = new HashSet<Entity<LoyaltyHealthComponent>>();
-        _lookup.GetEntitiesInRange(Transform(source).Coordinates, CodewordRange, hearers);
+        _lookup.GetEntitiesInRange(Transform(source).Coordinates, rule.CodewordRange, hearers);
 
         // Exclude the speaker and all revolutionaries
         hearers.RemoveWhere(e =>
@@ -624,19 +601,19 @@ public sealed class LoyaltyHealthSystem : EntitySystem
 
     /// <summary>
     /// Returns true if there is at least one non-loyal revolutionary propaganda poster
-    /// within <see cref="CodewordRange"/> of <paramref name="speaker"/> with line-of-sight.
+    /// within <paramref name="range"/> of <paramref name="speaker"/> with line-of-sight.
     /// </summary>
-    private bool HasNearbyRevPoster(EntityUid speaker)
+    private bool HasNearbyRevPoster(EntityUid speaker, float range)
     {
         var nearbyPosters = new HashSet<Entity<RevolutionaryPropagandaComponent>>();
-        _lookup.GetEntitiesInRange(Transform(speaker).Coordinates, CodewordRange, nearbyPosters);
+        _lookup.GetEntitiesInRange(Transform(speaker).Coordinates, range, nearbyPosters);
 
         foreach (var (posterUid, poster) in nearbyPosters)
         {
             if (poster.IsLoyal)
                 continue;
 
-            if (!poster.RequiresLoS || _interact.InRangeUnobstructed(speaker, posterUid, CodewordRange + 0.5f))
+            if (!poster.RequiresLoS || _interact.InRangeUnobstructed(speaker, posterUid, range + 0.5f))
                 return true;
         }
 
@@ -648,25 +625,25 @@ public sealed class LoyaltyHealthSystem : EntitySystem
     /// Returns the damage and canConvert flag for the highest tier codeword found.
     /// Only the highest tier in a message applies; multiple codewords in one sentence do nothing extra.
     /// </summary>
-    private (float damage, bool canConvert) GetHighestCodewordTierInMessage(string message)
+    private (float damage, bool canConvert) GetHighestCodewordTierInMessage(string message, RevolutionaryRuleComponent rule)
     {
         // Check High tier first
-        foreach (var word in _codewords.GetCodewords(HighCodewordFaction))
+        foreach (var word in _codewords.GetCodewords(rule.HighCodewordFaction))
         {
             if (message.Contains(word, StringComparison.OrdinalIgnoreCase))
-                return (HighCodewordDamage, canConvert: true);
+                return (rule.HighCodewordDamage, canConvert: true);
         }
 
-        foreach (var word in _codewords.GetCodewords(MidCodewordFaction))
+        foreach (var word in _codewords.GetCodewords(rule.MidCodewordFaction))
         {
             if (message.Contains(word, StringComparison.OrdinalIgnoreCase))
-                return (MidCodewordDamage, canConvert: false);
+                return (rule.MidCodewordDamage, canConvert: false);
         }
 
-        foreach (var word in _codewords.GetCodewords(LowCodewordFaction))
+        foreach (var word in _codewords.GetCodewords(rule.LowCodewordFaction))
         {
             if (message.Contains(word, StringComparison.OrdinalIgnoreCase))
-                return (LowCodewordDamage, canConvert: false);
+                return (rule.LowCodewordDamage, canConvert: false);
         }
 
         return (0f, false);
@@ -687,24 +664,24 @@ public sealed class LoyaltyHealthSystem : EntitySystem
         if (ev.NewMobState != MobState.Dead)
             return;
 
-        // Respect the 120-second cooldown per entity
+        var ruleQuery = EntityQueryEnumerator<RevolutionaryRuleComponent>();
+        if (!ruleQuery.MoveNext(out _, out var rule))
+            return;
+
         var curTime = _timing.CurTime;
-        if (curTime - lhp.LastDeathBurstTime < DeathBurstCooldown)
+        if (curTime - lhp.LastDeathBurstTime < rule.DeathBurstCooldown)
             return;
 
         lhp.LastDeathBurstTime = curTime;
 
         // Direction is based on who killed this entity, not what faction the dead entity belongs to.
-        // Rev killer → victim's burst heals nearby crew (rev violence reinforces loyalty).
-        // Crew killer → victim's burst damages nearby crew (seeing death shakes loyalty).
-        // Special case: if a rev was killed by crew, the martyr burst can convert wavering crew.
         var killerIsRev = lhp.LastDamageSource.HasValue
             && (HasComp<RevolutionaryComponent>(lhp.LastDamageSource.Value)
                 || HasComp<HeadRevolutionaryComponent>(lhp.LastDamageSource.Value));
         var deadIsRev = HasComp<RevolutionaryComponent>(uid) || HasComp<HeadRevolutionaryComponent>(uid);
 
         var nearby = new HashSet<Entity<LoyaltyHealthComponent>>();
-        _lookup.GetEntitiesInRange(Transform(uid).Coordinates, DeathBurstRange, nearby);
+        _lookup.GetEntitiesInRange(Transform(uid).Coordinates, rule.DeathBurstRange, nearby);
 
         foreach (var (nearUid, nearLhp) in nearby)
         {
@@ -714,19 +691,17 @@ public sealed class LoyaltyHealthSystem : EntitySystem
             if (HasComp<RevolutionaryComponent>(nearUid) || HasComp<HeadRevolutionaryComponent>(nearUid))
                 continue;
 
-            if (!_interact.InRangeUnobstructed(uid, nearUid, DeathBurstRange + 0.5f))
+            if (!_interact.InRangeUnobstructed(uid, nearUid, rule.DeathBurstRange + 0.5f))
                 continue;
 
             if (killerIsRev)
             {
-                // Rev killed someone — nearby crew's loyalty is reinforced
-                nearLhp.LoyaltyHealth = MathF.Min(nearLhp.LoyaltyHealth + DeathBurstDamage, nearLhp.MaxLoyaltyHealth);
+                nearLhp.LoyaltyHealth = MathF.Min(nearLhp.LoyaltyHealth + rule.DeathBurstDamage, nearLhp.MaxLoyaltyHealth);
             }
             else
             {
-                // Crew killed someone — nearby crew's loyalty is shaken
-                // If the victim was a revolutionary, their death can convert wavering crew (martyr effect)
-                ApplyLoyaltyDamageInternal(nearUid, nearLhp, DeathBurstDamage, canConvert: deadIsRev);
+                // if the victim was a rev, their death can convert wavering crew (martyr effect)
+                ApplyLoyaltyDamageInternal(nearUid, nearLhp, rule.DeathBurstDamage, canConvert: deadIsRev);
             }
         }
     }

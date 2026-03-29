@@ -16,6 +16,7 @@ public abstract class SharedRevolutionarySystem : EntitySystem
         SubscribeLocalEvent<MindShieldComponent, MapInitEvent>(MindShieldImplanted);
         SubscribeLocalEvent<RevolutionaryComponent, ComponentGetStateAttemptEvent>(OnRevCompGetStateAttempt);
         SubscribeLocalEvent<HeadRevolutionaryComponent, ComponentGetStateAttemptEvent>(OnRevCompGetStateAttempt);
+        SubscribeLocalEvent<LoyaltyHealthComponent, ComponentGetStateAttemptEvent>(OnLhpGetStateAttempt);
         SubscribeLocalEvent<RevolutionaryComponent, ComponentStartup>(DirtyRevComps);
         SubscribeLocalEvent<HeadRevolutionaryComponent, ComponentStartup>(OnHeadRevStartup);
         SubscribeLocalEvent<ShowAntagIconsComponent, ComponentStartup>(DirtyRevComps);
@@ -60,6 +61,15 @@ public abstract class SharedRevolutionarySystem : EntitySystem
     }
 
     /// <summary>
+    /// Restricts LoyaltyHealthComponent to revolutionaries and admins only.
+    /// Prevents cheat clients from detecting whether a rev round is active by checking LHP values.
+    /// </summary>
+    private void OnLhpGetStateAttempt(EntityUid uid, LoyaltyHealthComponent comp, ref ComponentGetStateAttemptEvent args)
+    {
+        args.Cancelled = !CanGetState(args.Player);
+    }
+
+    /// <summary>
     /// The criteria that determine whether a Rev/HeadRev component should be sent to a client.
     /// </summary>
     /// <param name="player"> The Player the component will be sent to.</param>
@@ -92,6 +102,14 @@ public abstract class SharedRevolutionarySystem : EntitySystem
 
         var headRevComps = AllEntityQuery<HeadRevolutionaryComponent>();
         while (headRevComps.MoveNext(out var uid, out var comp))
+        {
+            Dirty(uid, comp);
+        }
+
+        // Also dirty all LoyaltyHealthComponents so the newly-converted rev (or admin) receives
+        // the current LHP state of everyone on the station.
+        var lhpComps = AllEntityQuery<LoyaltyHealthComponent>();
+        while (lhpComps.MoveNext(out var uid, out var comp))
         {
             Dirty(uid, comp);
         }
